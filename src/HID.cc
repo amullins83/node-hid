@@ -115,6 +115,7 @@ private:
 
 HID::HID(unsigned short vendorId, unsigned short productId, wchar_t* serialNumber)
 {
+  hid_init();
   _hidHandle = hid_open(vendorId, productId, serialNumber);
 
   if (!_hidHandle) {
@@ -126,6 +127,7 @@ HID::HID(unsigned short vendorId, unsigned short productId, wchar_t* serialNumbe
 
 HID::HID(const char* path)
 {
+  hid_init();
   _hidHandle = hid_open_path(path);
 
   if (!_hidHandle) {
@@ -133,7 +135,7 @@ HID::HID(const char* path)
     os << "cannot open device with path " << path;
     throw JSException(os.str());
   }
-}  
+}
 
 void
 HID::close()
@@ -180,11 +182,25 @@ HID::recvAsync(uv_work_t* req)
   HID* hid = iocb->_hid;
 
   unsigned char buf[1024];
-  int len = hid_read(hid->_hidHandle, buf, sizeof buf);
-  if (len < 0) {
-    iocb->_error = new JSException("could not read from HID device");
-  } else {
-    iocb->_data = vector<unsigned char>(buf, buf + len);
+  int len = 0;
+
+  while (len == 0) {
+    // The HID handle may have been closed by another thread.
+    // Let's check to make sure it still exists
+    if (hid->_hidHandle)
+    {
+      len = hid_read_timeout(hid->_hidHandle, buf, sizeof buf, 50);
+    }
+    else
+    {
+      len = -1;
+    }
+
+    if (len < 0) {
+      iocb->_error = new JSException("could not read from HID device");
+    } else if (len > 0) {
+      iocb->_data = vector<unsigned char>(buf, buf + len);
+    }
   }
 }
 
@@ -230,7 +246,7 @@ HID::recvAsyncDone(uv_work_t* req)
   if (tryCatch.HasCaught()) {
     FatalException(tryCatch);
   }
-
+  
   iocb->_this.Dispose();
   iocb->_callback.Dispose();
 
