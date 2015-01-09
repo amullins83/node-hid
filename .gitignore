@@ -2,3 +2,4 @@
 hidapi
 build
 node_modules
+device_specific_tests
